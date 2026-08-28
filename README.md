@@ -1,5 +1,10 @@
 # WooCommerce REST API Connector
 
+![PHP 8.0+](https://img.shields.io/badge/PHP-8.0%2B-777BB4?logo=php&logoColor=white)
+![WordPress 6.5+](https://img.shields.io/badge/WordPress-6.5%2B-21759B?logo=wordpress&logoColor=white)
+![WooCommerce 8.0+](https://img.shields.io/badge/WooCommerce-8.0%2B-96588A?logo=woocommerce&logoColor=white)
+![Tests 34 passing](https://img.shields.io/badge/tests-34%20passing-2E7D32)
+
 WooCommerce REST API Connector is a technical sample WordPress plugin that demonstrates how a WooCommerce store can synchronize completed orders to a configurable external REST API without blocking the checkout or order-status request.
 
 The external API is fictional. The project focuses on production-minded WooCommerce patterns: asynchronous processing, deterministic idempotency, bounded retries, safe logging, settings sanitization, and testable integration logic.
