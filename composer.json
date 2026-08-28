@@ -1,0 +1,26 @@
+{
+  "name": "technical-sample/woocommerce-rest-api-connector",
+  "description": "Technical sample WooCommerce plugin for asynchronous REST API order synchronization.",
+  "type": "wordpress-plugin",
+  "license": "MIT",
+  "require": {
+    "php": ">=8.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^9.6"
+  },
+  "autoload": {
+    "classmap": [
+      "includes/"
+    ]
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "WCRAC\\Tests\\": "tests/"
+    }
+  },
+  "scripts": {
+    "test": "phpunit",
+    "lint": "php -l woocommerce-rest-api-connector.php"
+  }
+}
