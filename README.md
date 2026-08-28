@@ -212,3 +212,7 @@ To adapt this sample to a real SaaS API:
 - The basic test suite uses shims and mocks rather than a full WordPress/WooCommerce integration environment.
 - No frontend functionality is included because the sample focuses on admin configuration and background synchronization.
 - Remote duplicate prevention relies on the external API honoring `Idempotency-Key`.
+
+## License
+
+GPL-2.0-or-later. See [LICENSE](LICENSE).
