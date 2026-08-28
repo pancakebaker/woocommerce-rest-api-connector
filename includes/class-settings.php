@@ -9,24 +9,15 @@ namespace WCRAC;
 
 defined( 'ABSPATH' ) || exit;
 
-if ( class_exists( '\WC_Settings_Page' ) ) {
-	class Settings_Base extends \WC_Settings_Page {}
-} else {
-	class Settings_Base {}
-}
+final class Settings extends \WC_Settings_Page {
+	private const MASKED_TOKEN = '********';
 
-final class Settings extends Settings_Base {
 	private string $option_name;
 
 	public function __construct( string $option_name = 'wcrac_settings' ) {
 		$this->option_name = $option_name;
-
-		if ( property_exists( $this, 'id' ) ) {
-			$this->id = 'wcrac';
-		}
-		if ( property_exists( $this, 'label' ) ) {
-			$this->label = __( 'REST API Connector', 'woocommerce-rest-api-connector' );
-		}
+		$this->id          = 'wcrac';
+		$this->label       = __( 'REST API Connector', 'woocommerce-rest-api-connector' );
 
 		add_action( 'admin_init', array( $this, 'register_options' ) );
 		add_action( 'woocommerce_admin_field_wcrac_test_connection', array( $this, 'render_test_connection_field' ) );
@@ -51,10 +42,10 @@ final class Settings extends Settings_Base {
 	 */
 	public function defaults(): array {
 		return array(
-			'enabled'  => 'no',
-			'base_url' => '',
+			'enabled'   => 'no',
+			'base_url'  => '',
 			'api_token' => '',
-			'timeout'  => 15,
+			'timeout'   => 15,
 		);
 	}
 
@@ -97,11 +88,15 @@ final class Settings extends Settings_Base {
 		$token   = isset( $input['api_token'] ) ? sanitize_text_field( wp_unslash( (string) $input['api_token'] ) ) : '';
 		$timeout = isset( $input['timeout'] ) ? absint( $input['timeout'] ) : 15;
 
+		if ( '' === $token || self::MASKED_TOKEN === $token ) {
+			$token = (string) $current['api_token'];
+		}
+
 		return array(
-			'enabled'  => empty( $input['enabled'] ) ? 'no' : 'yes',
-			'base_url' => $base,
-			'api_token' => '' === $token ? (string) $current['api_token'] : $token,
-			'timeout'  => max( 1, min( 60, $timeout ) ),
+			'enabled'   => empty( $input['enabled'] ) ? 'no' : 'yes',
+			'base_url'  => $base,
+			'api_token' => $token,
+			'timeout'   => max( 1, min( 60, $timeout ) ),
 		);
 	}
 
@@ -116,6 +111,7 @@ final class Settings extends Settings_Base {
 
 		update_option( $this->option_name, $this->sanitize_settings( $raw ) );
 	}
+
 	public static function sanitize_base_url( string $url ): string {
 		$url = trim( $url );
 		if ( '' === $url ) {
@@ -123,11 +119,73 @@ final class Settings extends Settings_Base {
 		}
 
 		$url = esc_url_raw( $url, array( 'https', 'http' ) );
-		if ( ! wp_http_validate_url( $url ) ) {
+		if ( ! self::is_valid_api_base_url( $url ) ) {
 			return '';
 		}
 
 		return untrailingslashit( $url );
+	}
+
+	public static function is_valid_api_base_url( string $url ): bool {
+		if ( '' === trim( $url ) || ! wp_http_validate_url( $url ) ) {
+			return false;
+		}
+
+		$parts = wp_parse_url( $url );
+		if ( ! is_array( $parts ) || empty( $parts['scheme'] ) || empty( $parts['host'] ) ) {
+			return false;
+		}
+
+		$scheme = strtolower( (string) $parts['scheme'] );
+		if ( 'https' !== $scheme && ! ( 'http' === $scheme && defined( 'WCRAC_ALLOW_INSECURE_HTTP' ) && WCRAC_ALLOW_INSECURE_HTTP ) ) {
+			return false;
+		}
+
+		if ( ! empty( $parts['user'] ) || ! empty( $parts['pass'] ) ) {
+			return false;
+		}
+
+		$host = strtolower( trim( (string) $parts['host'], "[] \t\n\r\0\x0B." ) );
+		if ( '' === $host || 'localhost' === $host || str_ends_with( $host, '.localhost' ) ) {
+			return false;
+		}
+
+		if ( self::is_unsafe_host_or_ip( $host ) ) {
+			return false;
+		}
+
+		if ( filter_var( $host, FILTER_VALIDATE_IP ) ) {
+			return true;
+		}
+
+		$addresses = function_exists( 'gethostbynamel' ) ? gethostbynamel( $host ) : false;
+		if ( is_array( $addresses ) ) {
+			foreach ( $addresses as $address ) {
+				if ( self::is_unsafe_host_or_ip( $address ) ) {
+					return false;
+				}
+			}
+		}
+
+		return true;
+	}
+
+	private static function is_unsafe_host_or_ip( string $host ): bool {
+		$host = strtolower( trim( $host, '[]' ) );
+
+		if ( '169.254.169.254' === $host ) {
+			return true;
+		}
+
+		if ( filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 ) ) {
+			return false === filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE );
+		}
+
+		if ( filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 ) ) {
+			return false === filter_var( $host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6 | FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE );
+		}
+
+		return false;
 	}
 
 	/**
@@ -156,7 +214,7 @@ final class Settings extends Settings_Base {
 				'type'     => 'url',
 				'default'  => '',
 				'value'    => $options['base_url'],
-				'desc_tip' => __( 'Base URL only, for example https://api.example.test.', 'woocommerce-rest-api-connector' ),
+				'desc_tip' => __( 'HTTPS base URL only, for example https://api.example.test.', 'woocommerce-rest-api-connector' ),
 			),
 			array(
 				'title'    => __( 'API token', 'woocommerce-rest-api-connector' ),
@@ -214,7 +272,7 @@ final class Settings extends Settings_Base {
 		$result = $client->test_connection();
 		$type   = $result->is_success() ? 'success' : 'error';
 
-		add_settings_error( 'wcrac_messages', 'wcrac_test_connection', $result->get_message(), $type );
+		add_settings_error( 'wcrac_messages', 'wcrac_test_connection', Logger::sanitize_message( $result->get_message() ), $type );
 		set_transient( 'settings_errors', get_settings_errors(), 30 );
 
 		wp_safe_redirect( admin_url( 'admin.php?page=wc-settings&tab=wcrac&settings-updated=true' ) );

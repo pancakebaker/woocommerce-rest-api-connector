@@ -2,7 +2,7 @@
 
 WooCommerce REST API Connector is a technical sample WordPress plugin that demonstrates how a WooCommerce store can synchronize completed orders to a configurable external REST API without blocking the checkout or order-status request.
 
-The external API in this project is fictional. The plugin is intentionally small and focuses on production-minded patterns: asynchronous processing, idempotency, retries, safe logging, settings sanitization, and testable integration logic.
+The external API is fictional. The project focuses on production-minded WooCommerce patterns: asynchronous processing, deterministic idempotency, bounded retries, safe logging, settings sanitization, and testable integration logic.
 
 ## Requirements
 
@@ -20,9 +20,9 @@ The plugin relies on WooCommerce's bundled Action Scheduler and does not include
 - `includes/class-order-handler.php` listens for completed orders and schedules asynchronous work.
 - `includes/class-sync-service.php` coordinates payload generation, API submission, state tracking, retries, and idempotency.
 - `includes/class-order-payload.php` maps WooCommerce orders into a normalized API payload.
-- `includes/class-api-client.php` sends requests through the WordPress HTTP API.
-- `includes/class-admin-order-actions.php` adds a simple admin order action for manual retry.
-- `includes/class-logger.php` writes redacted operational logs through WooCommerce logging.
+- `includes/class-api-client.php` sends requests through the WordPress safe HTTP API.
+- `includes/class-admin-order-actions.php` adds failed-order manual retry.
+- `includes/class-logger.php` writes sanitized operational logs through WooCommerce logging.
 
 ## Synchronization Flow
 
@@ -44,13 +44,15 @@ Settings live under WooCommerce settings in the `REST API Connector` tab:
 - Request timeout
 - Test Connection
 
+API base URLs must use HTTPS by default. Plain HTTP is rejected unless the development-only `WCRAC_ALLOW_INSECURE_HTTP` constant is explicitly defined as true. Do not enable that override in production.
+
 The Test Connection action calls:
 
 ```http
 GET /api/v1/health
 ```
 
-For this sample, the API token is stored in WordPress options. A production deployment may choose to inject secrets from environment variables, server configuration, or a managed secret store depending on hosting requirements.
+For this sample, the API token is stored in WordPress options. A production deployment may choose to inject secrets from environment variables, server configuration, or a managed secret store depending on hosting requirements. Leaving the token field blank preserves the stored token, and the plugin never needs to display the token value in HTML.
 
 ## Fictional API Contract
 
@@ -92,15 +94,17 @@ Example payload:
 }
 ```
 
+Any HTTP 2xx response is considered successful. An empty successful response body is valid. If a non-empty 2xx response body is present, it must be valid JSON; malformed JSON is treated as an API contract failure and is not retried automatically. External ID extraction is optional and uses an `id` field when present.
+
 ## Retry Strategy
 
-The plugin allows three automated attempts:
+The plugin allows three total automated HTTP attempts per synchronization cycle:
 
-- Attempt 1: initial async execution
-- Attempt 2: 5 minutes after a retryable failure
-- Attempt 3: 15 minutes after the next retryable failure
+- Attempt 1: immediate async execution
+- Attempt 2: 5 minutes after a retryable failure from attempt 1
+- Attempt 3: 15 minutes after a retryable failure from attempt 2
 
-After the third failed attempt, synchronization is marked `failed` and requires manual retry. The implementation includes the requested 60-minute backoff value for later extension, but the default cap of three automated attempts means it is not scheduled automatically.
+If attempt 3 fails, the order is marked `failed` and requires manual retry.
 
 Retryable failures:
 
@@ -109,8 +113,15 @@ Retryable failures:
 - HTTP 408
 - HTTP 429
 - HTTP 5xx
+- unexpected worker exceptions after the order has loaded
 
 Ordinary HTTP 4xx responses are not automatically retried. HTTP 409 is not retried unless a future external API contract defines a safe reason to do so.
+
+## Manual Retry
+
+Manual retry is available only for orders with failed synchronization status. It does not run an HTTP request in the admin request. Instead, it enqueues the normal asynchronous sync action, resets the automated attempt count to `0`, clears the previous error, and preserves the existing idempotency key.
+
+The new manual cycle can again perform at most three automated HTTP attempts.
 
 ## Idempotency
 
@@ -119,7 +130,7 @@ Each order gets a deterministic idempotency key generated from:
 - the site URL from `home_url()`
 - the WooCommerce order ID
 
-The generated key is stored in private order metadata and reused for every retry. Server-side duplicate prevention ultimately depends on the external API honoring the `Idempotency-Key` header.
+The generated key is stored in private order metadata and reused for automated retries and manual retry cycles. Server-side duplicate prevention ultimately depends on the external API honoring the `Idempotency-Key` header.
 
 ## Order Metadata
 
@@ -138,7 +149,7 @@ It does not store full API response bodies or unnecessary customer data in metad
 
 Logs are written through WooCommerce logging with source `woocommerce-rest-api-connector`.
 
-Logs include operational fields such as order ID, attempt count, HTTP status, and sanitized errors. They do not include API tokens, authorization headers, or full request payloads.
+Logs include operational fields such as order ID, attempt count, HTTP status, and sanitized errors. They do not include API tokens, authorization headers, full request payloads, or complete remote response bodies.
 
 ## Security
 
@@ -146,10 +157,15 @@ The plugin follows WordPress and WooCommerce conventions:
 
 - WooCommerce dependency checks avoid fatal errors when WooCommerce is unavailable.
 - Settings are sanitized and constrained.
+- API URLs require HTTPS by default.
+- Configured outbound URLs are rejected for localhost, loopback, private, link-local, and obvious metadata endpoints.
+- Outbound API calls use `wp_safe_remote_request()` when available.
 - Admin actions check capabilities.
 - The Test Connection action uses a nonce.
 - Admin output is escaped.
 - API credentials are not exposed in logs, notices, order notes, or URLs.
+
+The SSRF protections are intentionally modest and appropriate for a technical sample. A production system may need organization-specific allowlists, egress controls, or secret-management policies.
 
 ## Testing
 
@@ -172,7 +188,7 @@ php -l woocommerce-rest-api-connector.php
 php -l includes/class-sync-service.php
 ```
 
-The unit tests cover idempotency generation, retry classification, retry delays, payload mapping, and settings sanitization. They do not require a live WooCommerce store or a real SaaS API.
+The unit tests cover idempotency generation, retry classification, retry delays, retry scheduling failure, maximum attempt limits, manual retry rules, payload mapping, API response handling, URL validation, and settings sanitization. They do not require a live WooCommerce store or a real SaaS API.
 
 ## Extension Points
 
@@ -190,3 +206,4 @@ To adapt this sample to a real SaaS API:
 - Manual retry is intentionally simple and uses WooCommerce's order action dropdown.
 - The basic test suite uses shims and mocks rather than a full WordPress/WooCommerce integration environment.
 - No frontend functionality is included because the sample focuses on admin configuration and background synchronization.
+- Remote duplicate prevention relies on the external API honoring `Idempotency-Key`.

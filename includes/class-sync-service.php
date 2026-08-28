@@ -7,6 +7,8 @@
 
 namespace WCRAC;
 
+use Throwable;
+
 defined( 'ABSPATH' ) || exit;
 
 final class Sync_Service {
@@ -50,16 +52,29 @@ final class Sync_Service {
 		$order->update_meta_data( self::META_STATUS, 'processing' );
 		$order->update_meta_data( self::META_ATTEMPT_COUNT, $attempt );
 
-		$idempotency_key = (string) $order->get_meta( self::META_IDEMPOTENCY_KEY, true );
-		if ( '' === $idempotency_key ) {
-			$idempotency_key = self::generate_idempotency_key( home_url(), $order_id );
-			$order->update_meta_data( self::META_IDEMPOTENCY_KEY, $idempotency_key );
+		try {
+			$idempotency_key = (string) $order->get_meta( self::META_IDEMPOTENCY_KEY, true );
+			if ( '' === $idempotency_key ) {
+				$idempotency_key = self::generate_idempotency_key( home_url(), $order_id );
+				$order->update_meta_data( self::META_IDEMPOTENCY_KEY, $idempotency_key );
+			}
+
+			$order->save();
+
+			$result = $this->api_client->send_order( $this->payload_builder->build( $order ), $idempotency_key );
+			$this->record_result( $order, $result, $attempt );
+		} catch ( Throwable $throwable ) {
+			$message = Logger::sanitize_message( 'Unexpected synchronization error: ' . get_class( $throwable ) . ' ' . $throwable->getMessage() );
+			$this->logger->error(
+				'Unexpected synchronization worker error.',
+				array(
+					'order_id' => $order_id,
+					'attempt'  => $attempt,
+					'error'    => $message,
+				)
+			);
+			$this->record_result( $order, Sync_Result::failure( $message, true, 0 ), $attempt );
 		}
-
-		$order->save();
-
-		$result = $this->api_client->send_order( $this->payload_builder->build( $order ), $idempotency_key );
-		$this->record_result( $order, $result, $attempt );
 	}
 
 	public function record_result( \WC_Order $order, Sync_Result $result, int $attempt ): void {
@@ -85,13 +100,19 @@ final class Sync_Service {
 			return;
 		}
 
-		$order->update_meta_data( self::META_LAST_ERROR, sanitize_text_field( $result->get_message() ) );
+		$error = Logger::sanitize_message( $result->get_message() );
+		$order->update_meta_data( self::META_LAST_ERROR, $error );
 
 		if ( $result->is_retryable() && $attempt < self::MAX_ATTEMPTS ) {
-			$order->update_meta_data( self::META_STATUS, 'pending' );
-			$order->save();
-			$this->schedule_retry( $order_id, $attempt );
-			return;
+			if ( $this->schedule_retry( $order_id, $attempt ) ) {
+				$order->update_meta_data( self::META_STATUS, 'pending' );
+				$order->save();
+				return;
+			}
+
+			$error = 'Retry scheduling failed; manual retry is required.';
+			$order->update_meta_data( self::META_LAST_ERROR, $error );
+			$this->logger->error( 'Retry scheduling failed; order marked failed.', array( 'order_id' => $order_id ) );
 		}
 
 		$order->update_meta_data( self::META_STATUS, 'failed' );
@@ -103,14 +124,18 @@ final class Sync_Service {
 				'order_id'    => $order_id,
 				'attempt'     => $attempt,
 				'http_status' => $result->get_status_code(),
-				'error'       => $result->get_message(),
+				'error'       => $error,
 			)
 		);
 	}
 
 	public function schedule_retry( int $order_id, int $attempt ): bool {
 		$delay = self::retry_delay_for_attempt( $attempt );
-		$args  = array( 'order_id' => $order_id );
+		if ( $delay <= 0 ) {
+			return false;
+		}
+
+		$args = array( 'order_id' => $order_id );
 
 		if ( function_exists( 'as_has_scheduled_action' ) && as_has_scheduled_action( Plugin::ACTION_SYNC_ORDER, $args, Plugin::ACTION_GROUP ) ) {
 			return true;
@@ -140,7 +165,7 @@ final class Sync_Service {
 		return match ( $attempt ) {
 			1 => 5 * MINUTE_IN_SECONDS,
 			2 => 15 * MINUTE_IN_SECONDS,
-			default => HOUR_IN_SECONDS,
+			default => 0,
 		};
 	}
 

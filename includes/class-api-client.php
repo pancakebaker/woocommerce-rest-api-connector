@@ -43,10 +43,15 @@ final class Api_Client {
 			return Sync_Result::failure( 'API base URL and token are required.', false, 0 );
 		}
 
+		if ( ! Settings::is_valid_api_base_url( $base_url ) ) {
+			return Sync_Result::failure( 'API base URL is not allowed.', false, 0 );
+		}
+
 		$args = array(
-			'method'  => $method,
-			'timeout' => $this->settings->get_timeout(),
-			'headers' => array(
+			'method'      => $method,
+			'timeout'     => $this->settings->get_timeout(),
+			'redirection' => 0,
+			'headers'     => array(
 				'Authorization' => 'Bearer ' . $token,
 				'Content-Type'  => 'application/json',
 				'Accept'        => 'application/json',
@@ -58,13 +63,17 @@ final class Api_Client {
 		}
 
 		if ( null !== $body ) {
-			$args['body'] = wp_json_encode( $body );
+			$encoded = wp_json_encode( $body );
+			if ( false === $encoded ) {
+				return Sync_Result::failure( 'Unable to encode order payload as JSON.', false, 0 );
+			}
+			$args['body'] = $encoded;
 		}
 
 		$response = $this->dispatch( $base_url . $path, $args );
 
 		if ( is_wp_error( $response ) ) {
-			return Sync_Result::failure( $response->get_error_message(), true, 0 );
+			return Sync_Result::failure( Logger::sanitize_message( $response->get_error_message() ), true, 0 );
 		}
 
 		$status_code = (int) wp_remote_retrieve_response_code( $response );
@@ -76,7 +85,7 @@ final class Api_Client {
 		}
 
 		if ( $status_code >= 200 && $status_code < 300 ) {
-			$external_id = is_array( $data ) && isset( $data['id'] ) ? (string) $data['id'] : '';
+			$external_id = is_array( $data ) && isset( $data['id'] ) ? Logger::sanitize_message( (string) $data['id'], 100 ) : '';
 			return Sync_Result::success( 'External API request succeeded.', $status_code, $external_id );
 		}
 
@@ -95,7 +104,7 @@ final class Api_Client {
 			return call_user_func( $this->transport, $url, $args );
 		}
 
-		return wp_remote_request( $url, $args );
+		return wp_safe_remote_request( $url, $args );
 	}
 
 	public static function is_retryable_status( int $status_code ): bool {

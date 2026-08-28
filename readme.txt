@@ -12,21 +12,23 @@ Demonstrates asynchronous synchronization of completed WooCommerce orders to a f
 
 == Description ==
 
-WooCommerce REST API Connector is a technical sample plugin for WordPress and WooCommerce. It demonstrates how completed WooCommerce orders can be normalized and sent to an external REST API using WooCommerce's bundled Action Scheduler and the WordPress HTTP API.
+WooCommerce REST API Connector is a technical sample plugin for WordPress and WooCommerce. It demonstrates how completed WooCommerce orders can be normalized and sent to an external REST API using WooCommerce's bundled Action Scheduler and the WordPress safe HTTP API.
 
 The fictional external API accepts completed order data at POST /api/v1/orders and exposes a GET /api/v1/health endpoint for connection testing.
 
 == Features ==
 
 * WooCommerce settings tab for API base URL, token, enablement, and timeout.
+* HTTPS API URLs by default, with a development-only insecure HTTP override.
 * Test Connection action.
 * Completed-order listener.
 * Asynchronous synchronization with Action Scheduler.
-* Retry handling for network errors, HTTP 408, HTTP 429, and HTTP 5xx.
-* Stable idempotency key per site and order.
+* Three total automated HTTP attempts with 5-minute and 15-minute retry delays.
+* Retry handling for network errors, HTTP 408, HTTP 429, HTTP 5xx, and unexpected worker errors.
+* Stable idempotency key per site and order, preserved across retries and manual retry cycles.
 * Private order metadata for sync state.
-* WooCommerce logging without exposing tokens or full payloads.
-* Manual retry via WooCommerce admin order actions.
+* WooCommerce logging without exposing tokens, full payloads, or full remote response bodies.
+* Failed-order manual retry via WooCommerce admin order actions.
 * Focused PHPUnit tests.
 
 == Installation ==
@@ -46,9 +48,17 @@ No. The API contract is fictional and intended for technical demonstration.
 
 No. It relies on WooCommerce's bundled Action Scheduler.
 
+= Can I use HTTP instead of HTTPS? =
+
+HTTPS is required by default. Plain HTTP is only allowed when the development-only WCRAC_ALLOW_INSECURE_HTTP constant is explicitly enabled.
+
+= What happens on manual retry? =
+
+Manual retry is only available for failed synchronization. It starts a new controlled attempt cycle, resets the attempt count, preserves the idempotency key, and schedules async work.
+
 = Are API tokens logged? =
 
-No. Logs avoid API tokens, Authorization headers, and full request payloads.
+No. Logs avoid API tokens, Authorization headers, full request payloads, and full remote response bodies.
 
 == Changelog ==
 

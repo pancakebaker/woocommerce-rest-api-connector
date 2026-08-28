@@ -5,9 +5,6 @@ namespace WCRAC\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 use WCRAC\Order_Payload;
 
-if ( ! class_exists( '\WC_Order' ) ) {
-	class_alias( FakeOrder::class, '\WC_Order' );
-}
 
 final class OrderPayloadTest extends TestCase {
 	public function test_maps_order_to_normalized_payload(): void {
@@ -23,7 +20,7 @@ final class OrderPayloadTest extends TestCase {
 	}
 }
 
-class FakeOrder {
+class FakeOrder extends \WC_Order {
 	public function get_id(): int { return 1234; }
 	public function get_order_number(): string { return '1234'; }
 	public function get_status(): string { return 'completed'; }

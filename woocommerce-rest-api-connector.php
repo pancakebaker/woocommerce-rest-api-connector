@@ -79,6 +79,25 @@ add_action(
 			return;
 		}
 
+		if ( ! class_exists( 'WC_Settings_Page' ) && function_exists( 'WC' ) ) {
+			$settings_page_file = WC()->plugin_path() . '/includes/admin/settings/class-wc-settings-page.php';
+			if ( file_exists( $settings_page_file ) ) {
+				require_once $settings_page_file;
+			}
+		}
+
+		if ( ! class_exists( 'WC_Settings_Page' ) ) {
+			add_action(
+				'admin_notices',
+				static function (): void {
+					printf(
+						'<div class="notice notice-warning"><p>%s</p></div>',
+						esc_html__( 'WooCommerce REST API Connector could not load the WooCommerce settings API.', 'woocommerce-rest-api-connector' )
+					);
+				}
+			);
+			return;
+		}
 		\WCRAC\Plugin::instance()->init();
 	}
 );
