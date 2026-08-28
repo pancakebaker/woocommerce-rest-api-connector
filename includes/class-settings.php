@@ -19,6 +19,8 @@ final class Settings extends \WC_Settings_Page {
 		$this->id          = 'wcrac';
 		$this->label       = __( 'REST API Connector', 'woocommerce-rest-api-connector' );
 
+		parent::__construct();
+
 		add_action( 'admin_init', array( $this, 'register_options' ) );
 		add_action( 'woocommerce_admin_field_wcrac_test_connection', array( $this, 'render_test_connection_field' ) );
 		add_action( 'woocommerce_update_options_wcrac', array( $this, 'save' ) );

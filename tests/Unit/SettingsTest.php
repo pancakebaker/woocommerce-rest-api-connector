@@ -7,11 +7,18 @@ use WCRAC\Settings;
 
 final class SettingsTest extends TestCase {
 	protected function setUp(): void {
+		$GLOBALS['wcrac_wc_settings_page_constructor_calls'] = 0;
 		$GLOBALS['wcrac_test_options'] = array(
 			'wcrac_settings' => array(
 				'api_token' => 'existing-token',
 			),
 		);
+	}
+
+	public function test_settings_constructor_calls_woocommerce_parent_constructor(): void {
+		new Settings();
+
+		self::assertSame( 1, $GLOBALS['wcrac_wc_settings_page_constructor_calls'] );
 	}
 
 	public function test_sanitizes_settings_and_preserves_existing_token_when_blank(): void {

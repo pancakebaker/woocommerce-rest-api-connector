@@ -14,6 +14,10 @@ if ( ! class_exists( 'WC_Settings_Page' ) ) {
 	class WC_Settings_Page {
 		public string $id = '';
 		public string $label = '';
+
+		public function __construct() {
+			$GLOBALS['wcrac_wc_settings_page_constructor_calls'] = ($GLOBALS['wcrac_wc_settings_page_constructor_calls'] ?? 0) + 1;
+		}
 	}
 }
 
